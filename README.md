@@ -34,6 +34,11 @@ delete todos. This app does not include authentication; policies that grant
 these operations to the `anon` role make the list publicly accessible and
 modifiable, so use authenticated policies before deploying private data.
 
+The `/txns1` page expects a `public.txns1` table with `id` and `created_at`
+defaults, plus required `occured_at` (date), `amount` (numeric), `from`,
+`to`, and `description` columns. Configure matching Row Level Security policies
+for this table as well.
+
 ### Development
 
 Start the development server with HMR:
