@@ -24,6 +24,16 @@ Install the dependencies:
 npm install
 ```
 
+### Supabase setup
+
+Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in your environment.
+The app expects a `public.todos` table with an auto-generated numeric `id`
+primary key and a required text `description` column. Configure Row Level
+Security policies that allow the intended users to select, insert, update, and
+delete todos. This app does not include authentication; policies that grant
+these operations to the `anon` role make the list publicly accessible and
+modifiable, so use authenticated policies before deploying private data.
+
 ### Development
 
 Start the development server with HMR:
