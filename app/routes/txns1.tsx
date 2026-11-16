@@ -28,15 +28,20 @@ const emptyDraft: TransactionDraft = {
   description: "",
 };
 
-function newTransactionDraft(): TransactionDraft {
-  const today = new Date();
-  const occured_at = [
-    today.getFullYear(),
-    String(today.getMonth() + 1).padStart(2, "0"),
-    String(today.getDate()).padStart(2, "0"),
-  ].join("-");
+function getLocalDateString() {
+  return formatLocalDate(new Date());
+}
 
-  return { ...emptyDraft, occured_at };
+function formatLocalDate(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function newTransactionDraft(): TransactionDraft {
+  return { ...emptyDraft, occured_at: getLocalDateString() };
 }
 
 const inputClassName =
@@ -83,6 +88,11 @@ export function meta({}: Route.MetaArgs) {
 
 export default function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [selectedDate, setSelectedDate] = useState(getLocalDateString);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const today = new Date();
+    return new Date(today.getFullYear(), today.getMonth(), 1);
+  });
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newDraft, setNewDraft] = useState<TransactionDraft>(
     newTransactionDraft,
@@ -96,8 +106,24 @@ export default function Transactions() {
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const calendarPopoverRef = useRef<HTMLDetailsElement>(null);
   const isModalOpen =
     isCreateOpen || editingId !== null || selectedTransaction !== null;
+  const visibleTransactions = transactions.filter(
+    (transaction) => transaction.occured_at === selectedDate,
+  );
+  const calendarDays = Array.from({ length: 42 }, (_, index) => {
+    const firstWeekday = new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth(),
+      1,
+    ).getDay();
+    return new Date(
+      calendarMonth.getFullYear(),
+      calendarMonth.getMonth(),
+      index - firstWeekday + 1,
+    );
+  });
 
   useEffect(() => {
     async function fetchTransactions() {
@@ -389,7 +415,7 @@ export default function Transactions() {
   return (
     <main className="min-h-screen bg-slate-50 px-4 py-5 text-slate-900">
       <section className="mx-auto w-full max-w-5xl">
-        <div className="mb-4 flex justify-end">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <button
             className="rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
@@ -403,6 +429,124 @@ export default function Transactions() {
             Add a transaction
           </button>
         </div>
+
+        <details ref={calendarPopoverRef} className="relative mb-4 w-fit">
+          <summary
+            className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden"
+            aria-label={`Choose date, currently ${new Date(`${selectedDate}T00:00:00`).toLocaleDateString()}`}
+          >
+            <svg
+              aria-hidden="true"
+              className="h-4 w-4 text-slate-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M8 3v3m8-3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13H4V6a1 1 0 0 1 1-1Z"
+              />
+            </svg>
+            {new Date(`${selectedDate}T00:00:00`).toLocaleDateString(
+              undefined,
+              { dateStyle: "medium" },
+            )}
+          </summary>
+          <section
+            className="absolute left-0 top-full z-10 mt-2 w-72 rounded-xl bg-white p-3 shadow-lg ring-1 ring-slate-200"
+            aria-label="Select transaction date"
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <button
+                className="rounded-md p-2 text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                type="button"
+                aria-label="Previous month"
+                onClick={() =>
+                  setCalendarMonth(
+                    (month) =>
+                      new Date(month.getFullYear(), month.getMonth() - 1, 1),
+                  )
+                }
+              >
+                <span aria-hidden="true">‹</span>
+              </button>
+              <h2 className="text-sm font-semibold text-slate-800">
+                {calendarMonth.toLocaleDateString(undefined, {
+                  month: "long",
+                  year: "numeric",
+                })}
+              </h2>
+              <button
+                className="rounded-md p-2 text-slate-600 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                type="button"
+                aria-label="Next month"
+                onClick={() =>
+                  setCalendarMonth(
+                    (month) =>
+                      new Date(month.getFullYear(), month.getMonth() + 1, 1),
+                  )
+                }
+              >
+                <span aria-hidden="true">›</span>
+              </button>
+            </div>
+            <div
+              className="grid grid-cols-7 text-center text-xs"
+              aria-label="Calendar days"
+            >
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                (weekday) => (
+                  <span
+                    className="py-1 font-medium text-slate-500"
+                    key={weekday}
+                  >
+                    {weekday}
+                  </span>
+                ),
+              )}
+              {calendarDays.map((date) => {
+                const dateString = formatLocalDate(date);
+                const isSelected = dateString === selectedDate;
+                const isCurrentMonth =
+                  date.getMonth() === calendarMonth.getMonth();
+                const isToday = dateString === getLocalDateString();
+
+                return (
+                  <button
+                    className={`mx-auto my-0.5 flex h-9 w-9 items-center justify-center rounded-full text-sm transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 ${
+                      isSelected
+                        ? "bg-indigo-600 font-semibold text-white"
+                        : isCurrentMonth
+                          ? "text-slate-800 hover:bg-indigo-50"
+                          : "text-slate-400 hover:bg-slate-100"
+                    } ${isToday && !isSelected ? "ring-1 ring-inset ring-indigo-300" : ""}`}
+                    key={dateString}
+                    type="button"
+                    aria-label={date.toLocaleDateString(undefined, {
+                      dateStyle: "full",
+                    })}
+                    aria-pressed={isSelected}
+                    onClick={() => {
+                      setSelectedDate(dateString);
+                      if (calendarPopoverRef.current) {
+                        calendarPopoverRef.current.open = false;
+                      }
+                      if (!isCurrentMonth) {
+                        setCalendarMonth(
+                          new Date(date.getFullYear(), date.getMonth(), 1),
+                        );
+                      }
+                    }}
+                  >
+                    {date.getDate()}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        </details>
 
         {errorMessage && !isModalOpen && (
           <p
@@ -421,16 +565,18 @@ export default function Transactions() {
             <p className="p-6 text-slate-600" role="status">
               Loading transactions…
             </p>
-          ) : transactions.length === 0 ? (
+          ) : visibleTransactions.length === 0 ? (
             <p className="p-6 text-slate-600">
-              No transactions yet. Add one above to get started.
+              {transactions.length === 0
+                ? "No transactions yet. Add one above to get started."
+                : `No transactions for ${selectedDate}.`}
             </p>
           ) : (
             <ul className="divide-y divide-slate-200">
-              {transactions.map((transaction) => (
+              {visibleTransactions.map((transaction) => (
                 <li key={transaction.id}>
                   <button
-                    className="w-full p-5 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+                    className="w-full px-4 py-3 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
                     type="button"
                     onClick={() => {
                       setErrorMessage("");
@@ -440,19 +586,19 @@ export default function Transactions() {
                     aria-haspopup="dialog"
                   >
                     <div className="min-w-0">
-                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                        <span className="text-lg font-semibold">
+                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+                        <span className="font-semibold">
                           {formatAmount(transaction.amount)}
                         </span>
                         <span className="text-sm text-slate-500">
                           {transaction.occured_at}
                         </span>
                       </div>
-                      <p className="mt-1 break-words text-slate-800">
+                      <p className="mt-0.5 break-words text-sm text-slate-800">
                         {transaction.from} <span aria-hidden="true">→</span>{" "}
                         {transaction.to}
                       </p>
-                      <p className="mt-1 break-words text-sm text-slate-600">
+                      <p className="mt-0.5 break-words text-xs text-slate-600">
                         {transaction.description}
                       </p>
                     </div>
