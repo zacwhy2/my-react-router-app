@@ -89,11 +89,15 @@ export default function Transactions() {
   );
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<TransactionDraft>(emptyDraft);
+  const [selectedTransaction, setSelectedTransaction] =
+    useState<Transaction | null>(null);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const isModalOpen = isCreateOpen || editingId !== null;
+  const isModalOpen =
+    isCreateOpen || editingId !== null || selectedTransaction !== null;
 
   useEffect(() => {
     async function fetchTransactions() {
@@ -134,6 +138,8 @@ export default function Transactions() {
   function closeModal() {
     setIsCreateOpen(false);
     setEditingId(null);
+    setSelectedTransaction(null);
+    setIsDeleteConfirmOpen(false);
     setNewDraft(newTransactionDraft());
     setEditDraft(emptyDraft);
     setErrorMessage("");
@@ -224,6 +230,7 @@ export default function Transactions() {
         ),
       );
       setEditingId(null);
+      setSelectedTransaction(null);
       setEditDraft(emptyDraft);
     } catch (error) {
       setErrorMessage(
@@ -256,10 +263,10 @@ export default function Transactions() {
       setTransactions((currentTransactions) =>
         currentTransactions.filter((transaction) => transaction.id !== id),
       );
-      if (editingId === id) {
-        setEditingId(null);
-        setEditDraft(emptyDraft);
-      }
+      if (editingId === id) setEditingId(null);
+      if (selectedTransaction?.id === id) setSelectedTransaction(null);
+      setIsDeleteConfirmOpen(false);
+      setEditDraft(emptyDraft);
     } catch (error) {
       setErrorMessage(
         error instanceof Error
@@ -272,6 +279,7 @@ export default function Transactions() {
   }
 
   function startEditing(transaction: Transaction) {
+    setSelectedTransaction(null);
     setEditingId(transaction.id);
     setEditDraft({
       occured_at: transaction.occured_at,
@@ -420,9 +428,18 @@ export default function Transactions() {
           ) : (
             <ul className="divide-y divide-slate-200">
               {transactions.map((transaction) => (
-                <li className="p-5" key={transaction.id}>
-                  <div className="flex flex-wrap items-start gap-4">
-                    <div className="min-w-0 flex-1">
+                <li key={transaction.id}>
+                  <button
+                    className="w-full p-5 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500"
+                    type="button"
+                    onClick={() => {
+                      setErrorMessage("");
+                      setSelectedTransaction(transaction);
+                    }}
+                    disabled={busy}
+                    aria-haspopup="dialog"
+                  >
+                    <div className="min-w-0">
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <span className="text-lg font-semibold">
                           {formatAmount(transaction.amount)}
@@ -438,30 +455,8 @@ export default function Transactions() {
                       <p className="mt-1 break-words text-sm text-slate-600">
                         {transaction.description}
                       </p>
-                      <p className="mt-2 text-xs text-slate-400">
-                        Created{" "}
-                        {new Date(transaction.created_at).toLocaleString()}
-                      </p>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        className="rounded-lg px-3 py-2 text-sm font-semibold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
-                        type="button"
-                        onClick={() => startEditing(transaction)}
-                        disabled={busy}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="rounded-lg px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
-                        type="button"
-                        onClick={() => void handleDelete(transaction.id)}
-                        disabled={busy}
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -476,61 +471,214 @@ export default function Transactions() {
           aria-labelledby="transaction-modal-title"
           onCancel={(event) => {
             event.preventDefault();
-            if (!busy) closeModal();
+            if (!busy) {
+              if (isDeleteConfirmOpen) {
+                setIsDeleteConfirmOpen(false);
+                setErrorMessage("");
+              } else {
+                closeModal();
+              }
+            }
           }}
           onClick={(event) => {
-            if (event.target === event.currentTarget && !busy) closeModal();
+            if (event.target === event.currentTarget && !busy) {
+              if (isDeleteConfirmOpen) {
+                setIsDeleteConfirmOpen(false);
+                setErrorMessage("");
+              } else {
+                closeModal();
+              }
+            }
           }}
         >
-          <form
-            className="p-6"
-            onSubmit={isCreateOpen ? handleCreate : handleUpdate}
-          >
-            <h2
-              className="mb-5 text-xl font-semibold"
-              id="transaction-modal-title"
+          {isCreateOpen || editingId !== null ? (
+            <form
+              className="p-6"
+              onSubmit={isCreateOpen ? handleCreate : handleUpdate}
             >
-              {isCreateOpen ? "Add transaction" : "Edit transaction"}
-            </h2>
-            {errorMessage && (
-              <p
-                className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
-                role="alert"
+              <h2
+                className="mb-5 text-xl font-semibold"
+                id="transaction-modal-title"
               >
-                {errorMessage}
-              </p>
-            )}
-            <div className="grid gap-4 sm:grid-cols-2">
-              {renderFields(
-                isCreateOpen ? newDraft : editDraft,
-                isCreateOpen ? setNewDraft : setEditDraft,
-                isCreateOpen ? "new" : `edit-${editingId}`,
+                {isCreateOpen ? "Add transaction" : "Edit transaction"}
+              </h2>
+              {errorMessage && (
+                <p
+                  className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+                  role="alert"
+                >
+                  {errorMessage}
+                </p>
               )}
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
-                type="button"
-                onClick={closeModal}
-                disabled={busy}
+              <div className="grid gap-4 sm:grid-cols-2">
+                {renderFields(
+                  isCreateOpen ? newDraft : editDraft,
+                  isCreateOpen ? setNewDraft : setEditDraft,
+                  isCreateOpen ? "new" : `edit-${editingId}`,
+                )}
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                  type="button"
+                  onClick={closeModal}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  type="submit"
+                  disabled={
+                    busy ||
+                    hasMissingFields(isCreateOpen ? newDraft : editDraft) ||
+                    amountToCents(
+                      (isCreateOpen ? newDraft : editDraft).amount,
+                    ) === null
+                  }
+                >
+                  {isCreateOpen ? "Add transaction" : "Save changes"}
+                </button>
+              </div>
+            </form>
+          ) : selectedTransaction && isDeleteConfirmOpen ? (
+            <div className="p-6" aria-describedby="delete-confirmation-message">
+              <h2
+                className="mb-3 text-xl font-semibold"
+                id="transaction-modal-title"
               >
-                Cancel
-              </button>
-              <button
-                className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
-                type="submit"
-                disabled={
-                  busy ||
-                  hasMissingFields(isCreateOpen ? newDraft : editDraft) ||
-                  amountToCents(
-                    (isCreateOpen ? newDraft : editDraft).amount,
-                  ) === null
-                }
+                Delete transaction?
+              </h2>
+              <p
+                className="text-sm text-slate-600"
+                id="delete-confirmation-message"
               >
-                {isCreateOpen ? "Add transaction" : "Save changes"}
-              </button>
+                This action can’t be undone.
+              </p>
+              {errorMessage && (
+                <p
+                  className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+                  role="alert"
+                >
+                  {errorMessage}
+                </p>
+              )}
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteConfirmOpen(false);
+                    setErrorMessage("");
+                  }}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+                <button
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                  type="button"
+                  onClick={() => void handleDelete(selectedTransaction.id)}
+                  disabled={busy}
+                >
+                  {busy ? "Deleting…" : "Delete transaction"}
+                </button>
+              </div>
             </div>
-          </form>
+          ) : selectedTransaction ? (
+            <div className="p-6">
+              <h2
+                className="mb-5 text-xl font-semibold"
+                id="transaction-modal-title"
+              >
+                Transaction details
+              </h2>
+              {errorMessage && (
+                <p
+                  className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+                  role="alert"
+                >
+                  {errorMessage}
+                </p>
+              )}
+              <dl className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <dt className="text-sm font-medium text-slate-500">Date</dt>
+                  <dd className="mt-1">{selectedTransaction.occured_at}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-slate-500">Amount</dt>
+                  <dd className="mt-1">
+                    {formatAmount(selectedTransaction.amount)}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-slate-500">From</dt>
+                  <dd className="mt-1 break-words">
+                    {selectedTransaction.from}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-slate-500">To</dt>
+                  <dd className="mt-1 break-words">{selectedTransaction.to}</dd>
+                </div>
+                <div className="sm:col-span-2">
+                  <dt className="text-sm font-medium text-slate-500">
+                    Description
+                  </dt>
+                  <dd className="mt-1 break-words">
+                    {selectedTransaction.description}
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-6 flex items-center justify-between">
+                <button
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition hover:bg-red-50 hover:text-red-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500 disabled:opacity-50"
+                  type="button"
+                  onClick={() => {
+                    setErrorMessage("");
+                    setIsDeleteConfirmOpen(true);
+                  }}
+                  disabled={busy}
+                  aria-label="Delete transaction"
+                  title="Delete transaction"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-4 w-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M4 7h16m-10 4v6m4-6v6M5 7l1 14h12l1-14M9 7V4h6v3"
+                    />
+                  </svg>
+                </button>
+                <div className="flex justify-end gap-2">
+                  <button
+                    className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                    type="button"
+                    onClick={closeModal}
+                    disabled={busy}
+                  >
+                    Close
+                  </button>
+                  <button
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
+                    type="button"
+                    onClick={() => startEditing(selectedTransaction)}
+                    disabled={busy}
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </dialog>
       )}
     </main>
