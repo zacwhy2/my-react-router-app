@@ -327,24 +327,6 @@ export default function Transactions() {
         <div>
           <label
             className="mb-1 block text-sm font-medium text-slate-700"
-            htmlFor={`${prefix}-occured-at`}
-          >
-            Date
-          </label>
-          <input
-            id={`${prefix}-occured-at`}
-            className={inputClassName}
-            type="date"
-            value={draft.occured_at}
-            onChange={(event) =>
-              setDraft({ ...draft, occured_at: event.target.value })
-            }
-            required
-          />
-        </div>
-        <div>
-          <label
-            className="mb-1 block text-sm font-medium text-slate-700"
             htmlFor={`${prefix}-amount`}
           >
             Amount
@@ -357,6 +339,24 @@ export default function Transactions() {
             value={draft.amount}
             onChange={(event) =>
               setDraft({ ...draft, amount: event.target.value })
+            }
+            required
+          />
+        </div>
+        <div>
+          <label
+            className="mb-1 block text-sm font-medium text-slate-700"
+            htmlFor={`${prefix}-occured-at`}
+          >
+            Date
+          </label>
+          <input
+            id={`${prefix}-occured-at`}
+            className={inputClassName}
+            type="date"
+            value={draft.occured_at}
+            onChange={(event) =>
+              setDraft({ ...draft, occured_at: event.target.value })
             }
             required
           />
@@ -391,7 +391,7 @@ export default function Transactions() {
             required
           />
         </div>
-        <div className="sm:col-span-2">
+        <div className="col-span-2">
           <label
             className="mb-1 block text-sm font-medium text-slate-700"
             htmlFor={`${prefix}-description`}
@@ -609,7 +609,7 @@ export default function Transactions() {
       {isModalOpen && (
         <dialog
           ref={dialogRef}
-          className="m-auto max-h-[calc(100%-2rem)] w-[calc(100%-2rem)] max-w-2xl overflow-y-auto rounded-2xl bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/50"
+          className="m-auto max-h-[calc(100%-2rem)] w-[calc(100%-2rem)] max-w-xl overflow-y-auto rounded-2xl bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/50"
           aria-labelledby="transaction-modal-title"
           onCancel={(event) => {
             event.preventDefault();
@@ -635,11 +635,11 @@ export default function Transactions() {
         >
           {isCreateOpen || editingId !== null ? (
             <form
-              className="p-6"
+              className="p-5"
               onSubmit={isCreateOpen ? handleCreate : handleUpdate}
             >
               <h2
-                className="mb-5 text-xl font-semibold"
+                className="mb-4 text-xl font-semibold"
                 id="transaction-modal-title"
               >
                 {isCreateOpen ? "Add transaction" : "Edit transaction"}
@@ -652,14 +652,14 @@ export default function Transactions() {
                   {errorMessage}
                 </p>
               )}
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid grid-cols-2 gap-3">
                 {renderFields(
                   isCreateOpen ? newDraft : editDraft,
                   isCreateOpen ? setNewDraft : setEditDraft,
                   isCreateOpen ? "new" : `edit-${editingId}`,
                 )}
               </div>
-              <div className="mt-5 flex justify-end gap-2">
+              <div className="mt-4 flex justify-end gap-2">
                 <button
                   className="rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 disabled:opacity-50"
                   type="button"
@@ -745,14 +745,14 @@ export default function Transactions() {
               )}
               <dl className="grid gap-4 sm:grid-cols-2">
                 <div>
-                  <dt className="text-sm font-medium text-slate-500">Date</dt>
-                  <dd className="mt-1">{selectedTransaction.occured_at}</dd>
-                </div>
-                <div>
                   <dt className="text-sm font-medium text-slate-500">Amount</dt>
                   <dd className="mt-1">
                     {formatAmount(selectedTransaction.amount)}
                   </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-slate-500">Date</dt>
+                  <dd className="mt-1">{selectedTransaction.occured_at}</dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-slate-500">From</dt>
@@ -764,7 +764,7 @@ export default function Transactions() {
                   <dt className="text-sm font-medium text-slate-500">To</dt>
                   <dd className="mt-1 break-words">{selectedTransaction.to}</dd>
                 </div>
-                <div className="sm:col-span-2">
+                <div className="col-span-2">
                   <dt className="text-sm font-medium text-slate-500">
                     Description
                   </dt>
