@@ -125,6 +125,16 @@ export default function Transactions() {
     );
   });
 
+  function moveSelectedDate(days: number) {
+    const date = new Date(`${selectedDate}T00:00:00`);
+    date.setDate(date.getDate() + days);
+    setSelectedDate(formatLocalDate(date));
+    setCalendarMonth(new Date(date.getFullYear(), date.getMonth(), 1));
+    if (calendarPopoverRef.current) {
+      calendarPopoverRef.current.open = false;
+    }
+  }
+
   useEffect(() => {
     async function fetchTransactions() {
       try {
@@ -416,7 +426,16 @@ export default function Transactions() {
     <main className="min-h-screen bg-slate-50 px-4 py-5 text-slate-900">
       <section className="mx-auto w-full max-w-5xl">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <details ref={calendarPopoverRef} className="relative w-fit">
+          <div className="flex items-center gap-1">
+            <button
+              className="inline-flex h-10 w-9 items-center justify-center rounded-lg text-xl text-slate-600 hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              type="button"
+              aria-label="Previous day"
+              onClick={() => moveSelectedDate(-1)}
+            >
+              <span aria-hidden="true">‹</span>
+            </button>
+            <details ref={calendarPopoverRef} className="relative w-fit">
             <summary
               className="flex cursor-pointer list-none items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 [&::-webkit-details-marker]:hidden"
               aria-label={`Choose date, currently ${new Date(`${selectedDate}T00:00:00`).toLocaleDateString()}`}
@@ -532,9 +551,18 @@ export default function Transactions() {
                 })}
               </div>
             </section>
-          </details>
+            </details>
+            <button
+              className="inline-flex h-10 w-9 items-center justify-center rounded-lg text-xl text-slate-600 hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              type="button"
+              aria-label="Next day"
+              onClick={() => moveSelectedDate(1)}
+            >
+              <span aria-hidden="true">›</span>
+            </button>
+          </div>
           <button
-            className="rounded-lg bg-indigo-600 px-4 py-2 font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
             type="button"
             onClick={() => {
               setErrorMessage("");
@@ -543,7 +571,21 @@ export default function Transactions() {
             }}
             disabled={loading || busy}
           >
-            Add transaction
+            <svg
+              aria-hidden="true"
+              className="h-4 w-4 text-slate-500"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth="1.8"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 5v14m-7-7h14"
+              />
+            </svg>
+            New
           </button>
         </div>
 
