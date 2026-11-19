@@ -28,16 +28,31 @@ npm install
 
 Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY` in your environment.
 The app expects a `public.todos` table with an auto-generated numeric `id`
-primary key and a required text `description` column. Configure Row Level
-Security policies that allow the intended users to select, insert, update, and
-delete todos. This app does not include authentication; policies that grant
-these operations to the `anon` role make the list publicly accessible and
-modifiable, so use authenticated policies before deploying private data.
+primary key and a required text `description` column.
 
 The `/txns1` page expects a `public.txns1` table with `id` and `created_at`
 defaults, plus required `occured_at` (date), `amount` (numeric), `from`,
-`to`, and `description` columns. Configure matching Row Level Security policies
-for this table as well.
+`to`, and `description` columns.
+
+### Email/password sign-in and private data
+
+The app uses Supabase email/password authentication. Enable email authentication
+in the Supabase Auth provider settings. The sign-in page supports creating an
+account and requesting a password reset. Add the local callback URL
+`http://localhost:5173/auth/callback` and your deployed
+`https://<your-domain>/auth/callback` URL to the Supabase Auth redirect URL
+allowlist for account confirmation and password recovery links.
+
+If you previously signed in using an email link, use **Forgot password?** to
+set a password for that account. Before applying the ownership migration, make
+sure the `zacwhy@gmail.com` account exists in Supabase Auth (create it or reset
+its password). Then run
+[`supabase/migrations/20261118220000_add_email_auth_and_user_ownership.sql`](./supabase/migrations/20261118220000_add_email_auth_and_user_ownership.sql)
+in the Supabase SQL Editor. It assigns existing todo and transaction rows to
+that account, sets new rows to the signed-in user, and replaces existing table
+policies with owner-scoped Row Level Security policies. The app also redirects
+signed-out visitors to the sign-in page; RLS enforces ownership at the
+database, not just in the UI.
 
 ### Development
 

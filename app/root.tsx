@@ -2,13 +2,18 @@ import {
   isRouteErrorResponse,
   Links,
   Meta,
+  Navigate,
   NavLink,
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
 } from "react-router";
+import { useEffect, useState } from "react";
+import type { User } from "@supabase/supabase-js";
 
 import type { Route } from "./+types/root";
+import { getSupabaseClient } from "./utils/supabase";
 import "./app.css";
 
 export const links: Route.LinksFunction = () => [
@@ -43,39 +48,161 @@ export function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const location = useLocation();
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState("");
+  const [signOutError, setSignOutError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribe = () => {};
+
+    try {
+      const supabase = getSupabaseClient();
+      const {
+        data: { subscription },
+      } = supabase.auth.onAuthStateChange((_event, session) => {
+        if (!active) return;
+        setUser(session?.user ?? null);
+        setAuthLoading(false);
+        setAuthError("");
+      });
+
+      unsubscribe = () => subscription.unsubscribe();
+      void supabase.auth
+        .getSession()
+        .then(({ data, error }) => {
+          if (error) throw error;
+          if (!active) return;
+          setUser(data.session?.user ?? null);
+          setAuthLoading(false);
+        })
+        .catch((error: unknown) => {
+          if (!active) return;
+          setAuthError(
+            error instanceof Error ? error.message : "Unable to check sign-in.",
+          );
+          setAuthLoading(false);
+        });
+    } catch (error) {
+      setAuthError(
+        error instanceof Error ? error.message : "Unable to initialize sign-in.",
+      );
+      setAuthLoading(false);
+    }
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
+
+  async function handleSignOut() {
+    setSignOutError("");
+    try {
+      const { error } = await getSupabaseClient().auth.signOut();
+      if (error) throw error;
+    } catch (error) {
+      setSignOutError(
+        error instanceof Error ? error.message : "Unable to sign out.",
+      );
+    }
+  }
+
+  const isPublicRoute =
+    location.pathname === "/signin" ||
+    location.pathname === "/auth/callback";
+  const nextPath = `${location.pathname}${location.search}`;
+
   return (
-    <>
+    <div>
       <nav className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex max-w-5xl gap-2 px-4 py-3">
-          <NavLink
-            to="/"
-            end
-            className={({ isActive }) =>
-              `rounded-lg px-3 py-2 text-sm font-semibold ${
-                isActive
-                  ? "bg-indigo-50 text-indigo-700"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`
-            }
-          >
-            Todos
-          </NavLink>
-          <NavLink
-            to="/txns1"
-            className={({ isActive }) =>
-              `rounded-lg px-3 py-2 text-sm font-semibold ${
-                isActive
-                  ? "bg-indigo-50 text-indigo-700"
-                  : "text-slate-600 hover:bg-slate-100"
-              }`
-            }
-          >
-            Transactions
-          </NavLink>
+        <div className="mx-auto flex max-w-5xl items-center gap-2 px-4 py-3">
+          {user ? (
+            <>
+              <NavLink
+                to="/"
+                end
+                className={({ isActive }) =>
+                  `rounded-lg px-3 py-2 text-sm font-semibold ${
+                    isActive
+                      ? "bg-indigo-50 text-indigo-700"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`
+                }
+              >
+                Todos
+              </NavLink>
+              <NavLink
+                to="/txns1"
+                className={({ isActive }) =>
+                  `rounded-lg px-3 py-2 text-sm font-semibold ${
+                    isActive
+                      ? "bg-indigo-50 text-indigo-700"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`
+                }
+              >
+                Transactions
+              </NavLink>
+              <span
+                className="ml-auto min-w-0 max-w-[35vw] flex-1 truncate text-right text-xs text-slate-500 sm:max-w-56 sm:text-sm"
+                title={`Signed in as ${user.email ?? "unknown email"}`}
+              >
+                Signed in as {user.email ?? "unknown email"}
+              </span>
+              <button
+                className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                type="button"
+                onClick={() => void handleSignOut()}
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <NavLink
+              to="/signin"
+              className={({ isActive }) =>
+                `rounded-lg px-3 py-2 text-sm font-semibold ${
+                  isActive
+                    ? "bg-indigo-50 text-indigo-700"
+                    : "text-slate-600 hover:bg-slate-100"
+                }`
+              }
+            >
+              Sign in
+            </NavLink>
+          )}
         </div>
       </nav>
-      <Outlet />
-    </>
+      {signOutError && (
+        <p
+          className="mx-auto mt-3 max-w-5xl px-4 text-sm text-red-700"
+          role="alert"
+        >
+          {signOutError}
+        </p>
+      )}
+      {authLoading ? (
+        <main className="p-8 text-center text-slate-600" role="status">
+          Checking sign-in…
+        </main>
+      ) : authError ? (
+        <main className="mx-auto max-w-xl p-8 text-red-700" role="alert">
+          Unable to initialize authentication: {authError}
+        </main>
+      ) : user && location.pathname === "/signin" ? (
+        <Navigate to="/" replace />
+      ) : !user && !isPublicRoute ? (
+        <Navigate
+          to={`/signin?next=${encodeURIComponent(nextPath)}`}
+          replace
+        />
+      ) : (
+        <Outlet />
+      )}
+    </div>
   );
 }
 
