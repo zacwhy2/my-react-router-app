@@ -147,18 +147,53 @@ export default function App() {
                 Transactions
               </NavLink>
               <span
-                className="ml-auto min-w-0 max-w-[35vw] flex-1 truncate text-right text-xs text-slate-500 sm:max-w-56 sm:text-sm"
+                className="hidden max-w-56 truncate text-right text-sm text-slate-500 sm:ml-auto sm:block"
                 title={`Signed in as ${user.email ?? "unknown email"}`}
               >
                 Signed in as {user.email ?? "unknown email"}
               </span>
               <button
-                className="shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
+                className="hidden shrink-0 rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 sm:block"
                 type="button"
                 onClick={() => void handleSignOut()}
               >
                 Sign out
               </button>
+              <details className="relative ml-auto sm:hidden">
+                <summary
+                  aria-label="Open account menu"
+                  className="flex cursor-pointer list-none items-center rounded-lg px-3 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100 [&::-webkit-details-marker]:hidden"
+                >
+                  <svg
+                    aria-hidden="true"
+                    className="h-5 w-5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      d="M4 6h16M4 12h16M4 18h16"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </summary>
+                <div className="absolute right-0 top-full z-20 mt-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+                  <p className="px-2 pt-1 text-xs text-slate-500">
+                    Signed in as
+                  </p>
+                  <p className="break-all px-2 py-1 text-sm text-slate-700">
+                    {user.email ?? "unknown email"}
+                  </p>
+                  <button
+                    className="mt-2 w-full rounded-lg border-t border-slate-200 px-2 py-3 text-left text-sm font-semibold text-red-700 hover:bg-red-50"
+                    type="button"
+                    onClick={() => void handleSignOut()}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </details>
             </>
           ) : (
             <NavLink
