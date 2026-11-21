@@ -146,6 +146,18 @@ export default function App() {
               >
                 Transactions
               </NavLink>
+              <NavLink
+                to="/accounts"
+                className={({ isActive }) =>
+                  `rounded-lg px-3 py-2 text-sm font-semibold ${
+                    isActive
+                      ? "bg-indigo-50 text-indigo-700"
+                      : "text-slate-600 hover:bg-slate-100"
+                  }`
+                }
+              >
+                Accounts
+              </NavLink>
               <span
                 className="hidden max-w-56 truncate text-right text-sm text-slate-500 sm:ml-auto sm:block"
                 title={`Signed in as ${user.email ?? "unknown email"}`}
