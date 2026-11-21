@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
 import type { Route } from "./+types/txns1";
 import { getSupabaseClient } from "../utils/supabase";
 
@@ -7,10 +13,10 @@ type Transaction = {
   created_at: string;
   occured_at: string;
   amount: number | string;
-  from: string;
-  to: string;
   from_account_id: number | null;
   to_account_id: number | null;
+  from_account: Pick<Account, "id" | "name"> | null;
+  to_account: Pick<Account, "id" | "name"> | null;
   description: string;
 };
 
@@ -21,19 +27,26 @@ type Account = {
   can_to: boolean;
 };
 
+type AccountReference = Pick<Account, "id" | "name">;
+
+type TransactionRow = Omit<Transaction, "from_account" | "to_account"> & {
+  from_account: AccountReference | AccountReference[] | null;
+  to_account: AccountReference | AccountReference[] | null;
+};
+
 type TransactionDraft = {
   occured_at: string;
   amount: string;
-  from: string;
-  to: string;
+  from_account_id: number | null;
+  to_account_id: number | null;
   description: string;
 };
 
 const emptyDraft: TransactionDraft = {
   occured_at: "",
   amount: "",
-  from: "",
-  to: "",
+  from_account_id: null,
+  to_account_id: null,
   description: "",
 };
 
@@ -56,6 +69,186 @@ function newTransactionDraft(): TransactionDraft {
 const inputClassName =
   "w-full rounded-lg border border-slate-300 px-3 py-2 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200";
 
+type AccountPickerProps = {
+  id: string;
+  label: string;
+  accounts: Account[];
+  selectedAccountId: number | null;
+  allowsAccount: (account: Account) => boolean;
+  onChange: (accountId: number | null) => void;
+};
+
+function AccountPicker({
+  id,
+  label,
+  accounts,
+  selectedAccountId,
+  allowsAccount,
+  onChange,
+}: AccountPickerProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const selectedAccount =
+    accounts.find((account) => account.id === selectedAccountId) ?? null;
+  const options = accounts.filter(
+    (account) =>
+      (allowsAccount(account) || account.id === selectedAccountId) &&
+      account.name.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+  const listboxId = `${id}-options`;
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handleOutsidePointerDown(event: PointerEvent) {
+      if (
+        event.target instanceof Node &&
+        !containerRef.current?.contains(event.target)
+      ) {
+        setIsOpen(false);
+        setQuery("");
+      }
+    }
+
+    document.addEventListener("pointerdown", handleOutsidePointerDown);
+    return () =>
+      document.removeEventListener("pointerdown", handleOutsidePointerDown);
+  }, [isOpen]);
+
+  function selectAccount(account: Account) {
+    onChange(account.id);
+    setQuery("");
+    setIsOpen(false);
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      if (isOpen) {
+        event.preventDefault();
+        setIsOpen(false);
+        setQuery("");
+      }
+      return;
+    }
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (!isOpen) {
+        setIsOpen(true);
+        setQuery("");
+        setActiveIndex(0);
+        return;
+      }
+      if (options.length > 0) {
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        setActiveIndex(
+          (index) => (index + direction + options.length) % options.length,
+        );
+      }
+      return;
+    }
+
+    if (event.key === "Enter" && isOpen && options[activeIndex]) {
+      event.preventDefault();
+      selectAccount(options[activeIndex]);
+    }
+  }
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <label
+        className="mb-1 block text-sm font-medium text-slate-700"
+        htmlFor={id}
+      >
+        {label}
+      </label>
+      <div className="relative">
+        <input
+          id={id}
+          className={`${inputClassName} pr-10`}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-expanded={isOpen}
+          aria-controls={listboxId}
+          aria-activedescendant={
+            isOpen && options[activeIndex]
+              ? `${listboxId}-${options[activeIndex].id}`
+              : undefined
+          }
+          autoComplete="off"
+          placeholder="Choose an account"
+          value={isOpen ? query : selectedAccount?.name ?? ""}
+          onFocus={() => {
+            setQuery("");
+            setActiveIndex(0);
+            setIsOpen(true);
+          }}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setActiveIndex(0);
+            setIsOpen(true);
+            if (selectedAccountId !== null) onChange(null);
+          }}
+          onKeyDown={handleKeyDown}
+        />
+        <svg
+          aria-hidden="true"
+          className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+          fill="none"
+          viewBox="0 0 20 20"
+          stroke="currentColor"
+          strokeWidth="1.8"
+        >
+          <path
+            d="m5 7.5 5 5 5-5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+      {isOpen && (
+        <ul
+          id={listboxId}
+          role="listbox"
+          aria-label={`${label} accounts`}
+          className="absolute z-30 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white p-1 shadow-lg"
+        >
+          {options.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-slate-500">
+              No matching accounts
+            </li>
+          ) : (
+            options.map((account, index) => (
+              <li key={account.id} role="presentation">
+                <button
+                  id={`${listboxId}-${account.id}`}
+                  className={`w-full rounded-lg px-3 py-2 text-left text-sm ${
+                    index === activeIndex
+                      ? "bg-indigo-50 text-indigo-700"
+                      : "text-slate-700 hover:bg-slate-50"
+                  }`}
+                  type="button"
+                  role="option"
+                  aria-selected={account.id === selectedAccountId}
+                  tabIndex={-1}
+                  onMouseEnter={() => setActiveIndex(index)}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => selectAccount(account)}
+                >
+                  {account.name}
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function sortTransactions(transactions: Transaction[]) {
   return [...transactions].sort(
     (a, b) =>
@@ -64,12 +257,24 @@ function sortTransactions(transactions: Transaction[]) {
   );
 }
 
+function normalizeTransaction(row: TransactionRow): Transaction {
+  return {
+    ...row,
+    from_account: Array.isArray(row.from_account)
+      ? row.from_account[0] ?? null
+      : row.from_account,
+    to_account: Array.isArray(row.to_account)
+      ? row.to_account[0] ?? null
+      : row.to_account,
+  };
+}
+
 function hasMissingFields(draft: TransactionDraft) {
   return (
     !draft.occured_at ||
     !draft.amount.trim() ||
-    !draft.from.trim() ||
-    !draft.to.trim() ||
+    draft.from_account_id === null ||
+    draft.to_account_id === null ||
     !draft.description.trim()
   );
 }
@@ -86,20 +291,6 @@ function amountToCents(amount: string): number | null {
 function formatAmount(amount: number | string): string {
   const cents = Number(amount);
   return Number.isFinite(cents) ? (cents / 100).toFixed(2) : String(amount);
-}
-
-function findAccountId(
-  accounts: Account[],
-  name: string,
-  side: "from" | "to",
-): number | null {
-  const normalizedName = name.trim().toLowerCase();
-  const account = accounts.find(
-    (item) =>
-      item[side === "from" ? "can_from" : "can_to"] &&
-      item.name.trim().toLowerCase() === normalizedName,
-  );
-  return account?.id ?? null;
 }
 
 export function meta({}: Route.MetaArgs) {
@@ -166,7 +357,9 @@ export default function Transactions() {
         const [transactionResult, accountResult] = await Promise.all([
           supabase
             .from("txns1")
-            .select("*")
+            .select(
+              "id, created_at, occured_at, amount, description, from_account_id, to_account_id, from_account:accounts!txns1_from_account_id_fkey(id, name), to_account:accounts!txns1_to_account_id_fkey(id, name)",
+            )
             .order("occured_at", { ascending: false })
             .order("id", { ascending: false }),
           supabase
@@ -176,7 +369,9 @@ export default function Transactions() {
         ]);
 
         if (transactionResult.error) throw transactionResult.error;
-        setTransactions(transactionResult.data);
+        setTransactions(
+          transactionResult.data.map(normalizeTransaction),
+        );
 
         if (accountResult.error) throw accountResult.error;
         setAccounts(accountResult.data);
@@ -235,19 +430,20 @@ export default function Transactions() {
         .insert({
           occured_at: newDraft.occured_at,
           amount,
-          from: newDraft.from.trim(),
-          from_account_id: findAccountId(accounts, newDraft.from, "from"),
-          to: newDraft.to.trim(),
-          to_account_id: findAccountId(accounts, newDraft.to, "to"),
+          from_account_id: newDraft.from_account_id,
+          to_account_id: newDraft.to_account_id,
           description: newDraft.description.trim(),
         })
-        .select("*")
+        .select(
+          "id, created_at, occured_at, amount, description, from_account_id, to_account_id, from_account:accounts!txns1_from_account_id_fkey(id, name), to_account:accounts!txns1_to_account_id_fkey(id, name)",
+        )
         .single();
 
       if (error) throw error;
 
+      const createdTransaction = normalizeTransaction(data);
       setTransactions((currentTransactions) =>
-        sortTransactions([...currentTransactions, data]),
+        sortTransactions([...currentTransactions, createdTransaction]),
       );
       setNewDraft(newTransactionDraft());
       setIsCreateOpen(false);
@@ -283,22 +479,25 @@ export default function Transactions() {
         .update({
           occured_at: editDraft.occured_at,
           amount,
-          from: editDraft.from.trim(),
-          from_account_id: findAccountId(accounts, editDraft.from, "from"),
-          to: editDraft.to.trim(),
-          to_account_id: findAccountId(accounts, editDraft.to, "to"),
+          from_account_id: editDraft.from_account_id,
+          to_account_id: editDraft.to_account_id,
           description: editDraft.description.trim(),
         })
         .eq("id", editingId)
-        .select("*")
+        .select(
+          "id, created_at, occured_at, amount, description, from_account_id, to_account_id, from_account:accounts!txns1_from_account_id_fkey(id, name), to_account:accounts!txns1_to_account_id_fkey(id, name)",
+        )
         .single();
 
       if (error) throw error;
 
+      const updatedTransaction = normalizeTransaction(data);
       setTransactions((currentTransactions) =>
         sortTransactions(
-          currentTransactions.map((transaction) =>
-            transaction.id === data.id ? data : transaction,
+          currentTransactions.map((currentTransaction) =>
+            currentTransaction.id === updatedTransaction.id
+              ? updatedTransaction
+              : currentTransaction,
           ),
         ),
       );
@@ -357,8 +556,8 @@ export default function Transactions() {
     setEditDraft({
       occured_at: transaction.occured_at,
       amount: formatAmount(transaction.amount),
-      from: transaction.from,
-      to: transaction.to,
+      from_account_id: transaction.from_account_id,
+      to_account_id: transaction.to_account_id,
       description: transaction.description,
     });
     setErrorMessage("");
@@ -409,54 +608,28 @@ export default function Transactions() {
           />
         </div>
         <div>
-          <label
-            className="mb-1 block text-sm font-medium text-slate-700"
-            htmlFor={`${prefix}-from`}
-          >
-            From
-          </label>
-          <input
+          <AccountPicker
             id={`${prefix}-from`}
-            className={inputClassName}
-            value={draft.from}
-            list={`${prefix}-from-options`}
-            onChange={(event) =>
-              setDraft({ ...draft, from: event.target.value })
+            label="From"
+            accounts={accounts}
+            selectedAccountId={draft.from_account_id}
+            allowsAccount={(account) => account.can_from}
+            onChange={(from_account_id) =>
+              setDraft({ ...draft, from_account_id })
             }
-            required
           />
-          <datalist id={`${prefix}-from-options`}>
-            {accounts
-              .filter((account) => account.can_from)
-              .map((account) => (
-                <option key={account.id} value={account.name} />
-              ))}
-          </datalist>
         </div>
         <div>
-          <label
-            className="mb-1 block text-sm font-medium text-slate-700"
-            htmlFor={`${prefix}-to`}
-          >
-            To
-          </label>
-          <input
+          <AccountPicker
             id={`${prefix}-to`}
-            className={inputClassName}
-            value={draft.to}
-            list={`${prefix}-to-options`}
-            onChange={(event) =>
-              setDraft({ ...draft, to: event.target.value })
+            label="To"
+            accounts={accounts}
+            selectedAccountId={draft.to_account_id}
+            allowsAccount={(account) => account.can_to}
+            onChange={(to_account_id) =>
+              setDraft({ ...draft, to_account_id })
             }
-            required
           />
-          <datalist id={`${prefix}-to-options`}>
-            {accounts
-              .filter((account) => account.can_to)
-              .map((account) => (
-                <option key={account.id} value={account.name} />
-              ))}
-          </datalist>
         </div>
         <div className="col-span-2">
           <label
@@ -689,8 +862,9 @@ export default function Transactions() {
                       </span>
                       <div className="min-w-0 text-left">
                         <p className="break-words text-sm text-slate-800">
-                          {transaction.from} <span aria-hidden="true">→</span>{" "}
-                          {transaction.to}
+                          {transaction.from_account?.name ?? "Unknown account"}{" "}
+                          <span aria-hidden="true">→</span>{" "}
+                          {transaction.to_account?.name ?? "Unknown account"}
                         </p>
                         <p className="mt-0.5 break-words text-xs text-slate-600">
                           {transaction.description}
@@ -856,12 +1030,14 @@ export default function Transactions() {
                 <div>
                   <dt className="text-sm font-medium text-slate-500">From</dt>
                   <dd className="mt-1 break-words">
-                    {selectedTransaction.from}
+                    {selectedTransaction.from_account?.name ?? "Unknown account"}
                   </dd>
                 </div>
                 <div>
                   <dt className="text-sm font-medium text-slate-500">To</dt>
-                  <dd className="mt-1 break-words">{selectedTransaction.to}</dd>
+                  <dd className="mt-1 break-words">
+                    {selectedTransaction.to_account?.name ?? "Unknown account"}
+                  </dd>
                 </div>
                 <div className="col-span-2">
                   <dt className="text-sm font-medium text-slate-500">

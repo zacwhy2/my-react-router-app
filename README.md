@@ -31,8 +31,19 @@ The app expects a `public.todos` table with an auto-generated numeric `id`
 primary key and a required text `description` column.
 
 The `/txns1` page expects a `public.txns1` table with `id` and `created_at`
-defaults, plus required `occured_at` (date), `amount` (numeric), `from`,
-`to`, and `description` columns.
+defaults, required `occured_at` (date), `amount` (numeric), and `description`
+columns, plus required `from_account_id` and `to_account_id` foreign keys to
+`public.accounts(id)`. The `public.accounts` table has `id`, `name`, `can_from`,
+and `can_to` columns.
+
+To migrate an existing transaction table that still has text `from` and `to`
+columns, make sure every existing value matches exactly one account name
+(ignoring case and surrounding whitespace), then run
+[`supabase/migrations/20261121233000_use_account_foreign_keys_for_transactions.sql`](./supabase/migrations/20261121233000_use_account_foreign_keys_for_transactions.sql)
+in the Supabase SQL Editor. It fills any missing account IDs, checks for
+unmatched or ambiguous values, makes both foreign keys required, and drops the
+legacy text columns. If the migration reports unmatched values, create or
+rename the corresponding accounts and retry.
 
 ### Email/password sign-in and private data
 
