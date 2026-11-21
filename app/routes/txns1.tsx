@@ -9,7 +9,16 @@ type Transaction = {
   amount: number | string;
   from: string;
   to: string;
+  from_account_id: number | null;
+  to_account_id: number | null;
   description: string;
+};
+
+type Account = {
+  id: number;
+  name: string;
+  can_from: boolean;
+  can_to: boolean;
 };
 
 type TransactionDraft = {
@@ -79,6 +88,20 @@ function formatAmount(amount: number | string): string {
   return Number.isFinite(cents) ? (cents / 100).toFixed(2) : String(amount);
 }
 
+function findAccountId(
+  accounts: Account[],
+  name: string,
+  side: "from" | "to",
+): number | null {
+  const normalizedName = name.trim().toLowerCase();
+  const account = accounts.find(
+    (item) =>
+      item[side === "from" ? "can_from" : "can_to"] &&
+      item.name.trim().toLowerCase() === normalizedName,
+  );
+  return account?.id ?? null;
+}
+
 export function meta({}: Route.MetaArgs) {
   return [
     { title: "Transactions" },
@@ -88,6 +111,7 @@ export function meta({}: Route.MetaArgs) {
 
 export default function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [selectedDate, setSelectedDate] = useState(getLocalDateString);
   const [calendarMonth, setCalendarMonth] = useState(() => {
     const today = new Date();
@@ -136,29 +160,38 @@ export default function Transactions() {
   }
 
   useEffect(() => {
-    async function fetchTransactions() {
+    async function fetchPageData() {
       try {
-        const { data, error } = await getSupabaseClient()
-          .from("txns1")
-          .select("*")
-          .order("occured_at", { ascending: false })
-          .order("id", { ascending: false });
+        const supabase = getSupabaseClient();
+        const [transactionResult, accountResult] = await Promise.all([
+          supabase
+            .from("txns1")
+            .select("*")
+            .order("occured_at", { ascending: false })
+            .order("id", { ascending: false }),
+          supabase
+            .from("accounts")
+            .select("id, name, can_from, can_to")
+            .order("name", { ascending: true }),
+        ]);
 
-        if (error) throw error;
+        if (transactionResult.error) throw transactionResult.error;
+        setTransactions(transactionResult.data);
 
-        setTransactions(data);
+        if (accountResult.error) throw accountResult.error;
+        setAccounts(accountResult.data);
       } catch (error) {
         setErrorMessage(
           error instanceof Error
             ? error.message
-            : "Unable to load transactions.",
+            : "Unable to load transactions and accounts.",
         );
       } finally {
         setLoading(false);
       }
     }
 
-    void fetchTransactions();
+    void fetchPageData();
   }, []);
 
   useEffect(() => {
@@ -203,7 +236,9 @@ export default function Transactions() {
           occured_at: newDraft.occured_at,
           amount,
           from: newDraft.from.trim(),
+          from_account_id: findAccountId(accounts, newDraft.from, "from"),
           to: newDraft.to.trim(),
+          to_account_id: findAccountId(accounts, newDraft.to, "to"),
           description: newDraft.description.trim(),
         })
         .select("*")
@@ -249,7 +284,9 @@ export default function Transactions() {
           occured_at: editDraft.occured_at,
           amount,
           from: editDraft.from.trim(),
+          from_account_id: findAccountId(accounts, editDraft.from, "from"),
           to: editDraft.to.trim(),
+          to_account_id: findAccountId(accounts, editDraft.to, "to"),
           description: editDraft.description.trim(),
         })
         .eq("id", editingId)
@@ -382,9 +419,19 @@ export default function Transactions() {
             id={`${prefix}-from`}
             className={inputClassName}
             value={draft.from}
-            onChange={(event) => setDraft({ ...draft, from: event.target.value })}
+            list={`${prefix}-from-options`}
+            onChange={(event) =>
+              setDraft({ ...draft, from: event.target.value })
+            }
             required
           />
+          <datalist id={`${prefix}-from-options`}>
+            {accounts
+              .filter((account) => account.can_from)
+              .map((account) => (
+                <option key={account.id} value={account.name} />
+              ))}
+          </datalist>
         </div>
         <div>
           <label
@@ -397,9 +444,19 @@ export default function Transactions() {
             id={`${prefix}-to`}
             className={inputClassName}
             value={draft.to}
-            onChange={(event) => setDraft({ ...draft, to: event.target.value })}
+            list={`${prefix}-to-options`}
+            onChange={(event) =>
+              setDraft({ ...draft, to: event.target.value })
+            }
             required
           />
+          <datalist id={`${prefix}-to-options`}>
+            {accounts
+              .filter((account) => account.can_to)
+              .map((account) => (
+                <option key={account.id} value={account.name} />
+              ))}
+          </datalist>
         </div>
         <div className="col-span-2">
           <label
