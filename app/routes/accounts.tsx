@@ -1,4 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import type { Route } from "./+types/accounts";
 import { getSupabaseClient } from "../utils/supabase";
 
@@ -33,11 +38,26 @@ export function meta({}: Route.MetaArgs) {
 export default function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [newDraft, setNewDraft] = useState<AccountDraft>(emptyDraft);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState<AccountDraft>(emptyDraft);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const isModalOpen = isCreateOpen || selectedAccount !== null;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog || dialog.open || !isModalOpen) return;
+
+    dialog.showModal();
+    return () => {
+      if (dialog.open) dialog.close();
+    };
+  }, [isModalOpen]);
 
   useEffect(() => {
     async function fetchAccounts() {
@@ -84,6 +104,7 @@ export default function Accounts() {
         [...currentAccounts, data].sort((a, b) => a.name.localeCompare(b.name)),
       );
       setNewDraft(emptyDraft);
+      setIsCreateOpen(false);
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Unable to create the account.",
@@ -120,6 +141,7 @@ export default function Accounts() {
       );
       setEditingId(null);
       setEditDraft(emptyDraft);
+      setSelectedAccount(data);
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Unable to update the account.",
@@ -130,14 +152,7 @@ export default function Accounts() {
   }
 
   async function handleDelete(account: Account) {
-    if (
-      busy ||
-      !window.confirm(
-        `Delete "${account.name}"? Transactions that reference this account may prevent deletion.`,
-      )
-    ) {
-      return;
-    }
+    if (busy) return;
 
     setBusy(true);
     setErrorMessage("");
@@ -163,10 +178,9 @@ export default function Accounts() {
       setAccounts((currentAccounts) =>
         currentAccounts.filter((item) => item.id !== account.id),
       );
-      if (editingId === account.id) {
-        setEditingId(null);
-        setEditDraft(emptyDraft);
-      }
+      setIsDeleteConfirmOpen(false);
+      setEditingId(null);
+      setSelectedAccount(null);
     } catch (error) {
       setErrorMessage(
         error instanceof Error ? error.message : "Unable to delete the account.",
@@ -178,11 +192,23 @@ export default function Accounts() {
 
   function startEditing(account: Account) {
     setEditingId(account.id);
+    setIsDeleteConfirmOpen(false);
     setEditDraft({
       name: account.name,
       can_from: account.can_from,
       can_to: account.can_to,
     });
+    setErrorMessage("");
+  }
+
+  function closeModal() {
+    if (busy) return;
+    setIsCreateOpen(false);
+    setSelectedAccount(null);
+    setEditingId(null);
+    setIsDeleteConfirmOpen(false);
+    setNewDraft(emptyDraft);
+    setEditDraft(emptyDraft);
     setErrorMessage("");
   }
 
@@ -206,7 +232,7 @@ export default function Accounts() {
               setDraft({ ...draft, can_from: event.target.checked })
             }
           />
-          Can be From
+          From
         </label>
         <label
           className="inline-flex items-center gap-2 text-sm text-slate-700"
@@ -221,53 +247,45 @@ export default function Accounts() {
               setDraft({ ...draft, can_to: event.target.checked })
             }
           />
-          Can be To
+          To
         </label>
       </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-slate-50 px-4 py-8 text-slate-900">
+    <main className="min-h-screen bg-slate-50 px-4 py-5 text-slate-900">
       <section className="mx-auto w-full max-w-3xl">
-        <header className="mb-6">
-          <h1 className="text-3xl font-bold tracking-tight">Accounts</h1>
-          <p className="mt-2 text-slate-600">
-            Manage the accounts available in transaction From and To fields.
-          </p>
-        </header>
-
-        <form
-          className="mb-6 space-y-4 rounded-2xl bg-white p-4 shadow-sm ring-1 ring-slate-200"
-          onSubmit={handleCreate}
-        >
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <label className="sr-only" htmlFor="new-account-name">
-              Account name
-            </label>
-            <input
-              id="new-account-name"
-              className={`${inputClassName} min-w-0 flex-1`}
-              value={newDraft.name}
-              onChange={(event) =>
-                setNewDraft({ ...newDraft, name: event.target.value })
-              }
-              placeholder="Account name"
-              required
-              disabled={busy}
-            />
-            <button
-              className={`${buttonClassName} bg-indigo-600 px-4 text-white hover:bg-indigo-700`}
-              type="submit"
-              disabled={loading || busy || !newDraft.name.trim()}
+        <div className="mb-4 flex justify-end">
+          <button
+            className={`${buttonClassName} inline-flex h-10 items-center gap-2 border border-slate-300 bg-white px-3 text-slate-700 shadow-sm hover:bg-slate-50`}
+            type="button"
+            onClick={() => {
+              setNewDraft(emptyDraft);
+              setErrorMessage("");
+              setIsCreateOpen(true);
+            }}
+            disabled={loading || busy}
+          >
+            <svg
+              aria-hidden="true"
+              className="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth="1.8"
             >
-              Add account
-            </button>
-          </div>
-          {renderPermissions(newDraft, setNewDraft, "new-account")}
-        </form>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M12 5v14m-7-7h14"
+              />
+            </svg>
+            Add account
+          </button>
+        </div>
 
-        {errorMessage && (
+        {errorMessage && !isModalOpen && (
           <p
             className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
             role="alert"
@@ -286,96 +304,305 @@ export default function Accounts() {
             </p>
           ) : accounts.length === 0 ? (
             <p className="p-6 text-slate-600">
-              No accounts yet. Add one above to get started.
+              No accounts yet. Add one to get started.
             </p>
           ) : (
             <ul className="divide-y divide-slate-200">
               {accounts.map((account) => (
-                <li className="px-4 py-4 sm:px-5" key={account.id}>
-                  {editingId === account.id ? (
-                    <form className="space-y-4" onSubmit={handleUpdate}>
-                      <label
-                        className="sr-only"
-                        htmlFor={`edit-account-name-${account.id}`}
-                      >
-                        Account name
-                      </label>
-                      <input
-                        id={`edit-account-name-${account.id}`}
-                        className={`${inputClassName} w-full`}
-                        value={editDraft.name}
-                        onChange={(event) =>
-                          setEditDraft({
-                            ...editDraft,
-                            name: event.target.value,
-                          })
-                        }
-                        required
-                        autoFocus
-                        disabled={busy}
-                      />
-                      {renderPermissions(
-                        editDraft,
-                        setEditDraft,
-                        `edit-account-${account.id}`,
+                <li key={account.id}>
+                  <button
+                    className="flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 sm:px-5"
+                    type="button"
+                    onClick={() => {
+                      setErrorMessage("");
+                      setSelectedAccount(account);
+                    }}
+                    disabled={busy}
+                    aria-haspopup="dialog"
+                  >
+                    <span className="min-w-0 flex-1 break-words font-medium">
+                      {account.name}
+                    </span>
+                    <span className="flex shrink-0 gap-1.5">
+                      {account.can_from && (
+                        <span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700">
+                          From
+                        </span>
                       )}
-                      <div className="flex justify-end gap-2">
-                        <button
-                          className={`${buttonClassName} text-slate-600 hover:bg-slate-100`}
-                          type="button"
-                          onClick={() => {
-                            setEditingId(null);
-                            setEditDraft(emptyDraft);
-                          }}
-                          disabled={busy}
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          className={`${buttonClassName} bg-indigo-600 text-white hover:bg-indigo-700`}
-                          type="submit"
-                          disabled={busy || !editDraft.name.trim()}
-                        >
-                          Save
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                      <div className="min-w-0 flex-1">
-                        <p className="break-words font-medium">{account.name}</p>
-                        <p className="mt-1 text-sm text-slate-600">
-                          {account.can_from ? "Can be From" : "Cannot be From"}
-                          {" · "}
-                          {account.can_to ? "Can be To" : "Cannot be To"}
-                        </p>
-                      </div>
-                      <div className="flex shrink-0 gap-2">
-                        <button
-                          className={`${buttonClassName} text-indigo-700 hover:bg-indigo-50`}
-                          type="button"
-                          onClick={() => startEditing(account)}
-                          disabled={busy}
-                        >
-                          Edit
-                        </button>
-                        <button
-                          className={`${buttonClassName} text-red-700 hover:bg-red-50`}
-                          type="button"
-                          onClick={() => void handleDelete(account)}
-                          disabled={busy}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                      {account.can_to && (
+                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                          To
+                        </span>
+                      )}
+                    </span>
+                  </button>
                 </li>
               ))}
             </ul>
           )}
         </section>
       </section>
+
+      {isModalOpen && (
+        <dialog
+          ref={dialogRef}
+          className="m-auto max-h-[calc(100%-2rem)] w-[calc(100%-2rem)] max-w-md overflow-y-auto rounded-2xl bg-white p-0 text-slate-900 shadow-xl backdrop:bg-slate-950/50"
+          aria-labelledby="accounts-modal-title"
+          onCancel={(event) => {
+            event.preventDefault();
+            if (isDeleteConfirmOpen) {
+              setIsDeleteConfirmOpen(false);
+              setErrorMessage("");
+            } else {
+              closeModal();
+            }
+          }}
+          onClick={(event) => {
+            if (event.target === event.currentTarget) {
+              if (isDeleteConfirmOpen) {
+                setIsDeleteConfirmOpen(false);
+                setErrorMessage("");
+              } else {
+                closeModal();
+              }
+            }
+          }}
+        >
+          {isCreateOpen ? (
+            <form className="space-y-5 p-5" onSubmit={handleCreate}>
+              <h2
+                className="text-xl font-semibold"
+                id="accounts-modal-title"
+              >
+                Add account
+              </h2>
+              {errorMessage && (
+                <p
+                  className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+                  role="alert"
+                >
+                  {errorMessage}
+                </p>
+              )}
+              <div>
+                <label
+                  className="mb-1 block text-sm font-medium text-slate-700"
+                  htmlFor="new-account-name"
+                >
+                  Name
+                </label>
+                <input
+                  id="new-account-name"
+                  className={`${inputClassName} w-full`}
+                  value={newDraft.name}
+                  onChange={(event) =>
+                    setNewDraft({ ...newDraft, name: event.target.value })
+                  }
+                  required
+                  autoFocus
+                  disabled={busy}
+                />
+              </div>
+              {renderPermissions(newDraft, setNewDraft, "new-account")}
+              <div className="flex justify-end gap-2">
+                <button
+                  className={`${buttonClassName} text-slate-600 hover:bg-slate-100`}
+                  type="button"
+                  onClick={closeModal}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+                <button
+                  className={`${buttonClassName} bg-indigo-600 px-4 text-white hover:bg-indigo-700`}
+                  type="submit"
+                  disabled={busy || !newDraft.name.trim()}
+                >
+                  {busy ? "Adding…" : "Add account"}
+                </button>
+              </div>
+            </form>
+          ) : selectedAccount && isDeleteConfirmOpen ? (
+            <div className="p-6">
+              <h2
+                className="mb-3 text-xl font-semibold"
+                id="accounts-modal-title"
+              >
+                Delete account?
+              </h2>
+              <p className="text-sm text-slate-600">
+                Delete “{selectedAccount.name}”? This can’t be undone. Accounts
+                referenced by transactions cannot be deleted.
+              </p>
+              {errorMessage && (
+                <p
+                  className="mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+                  role="alert"
+                >
+                  {errorMessage}
+                </p>
+              )}
+              <div className="mt-6 flex justify-end gap-2">
+                <button
+                  className={`${buttonClassName} text-slate-600 hover:bg-slate-100`}
+                  type="button"
+                  onClick={() => {
+                    setIsDeleteConfirmOpen(false);
+                    setErrorMessage("");
+                  }}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+                <button
+                  className={`${buttonClassName} bg-red-600 px-4 text-white hover:bg-red-700`}
+                  type="button"
+                  onClick={() => void handleDelete(selectedAccount)}
+                  disabled={busy}
+                >
+                  {busy ? "Deleting…" : "Delete account"}
+                </button>
+              </div>
+            </div>
+          ) : selectedAccount && editingId === selectedAccount.id ? (
+            <form className="space-y-5 p-5" onSubmit={handleUpdate}>
+              <h2
+                className="text-xl font-semibold"
+                id="accounts-modal-title"
+              >
+                Edit account
+              </h2>
+              {errorMessage && (
+                <p
+                  className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+                  role="alert"
+                >
+                  {errorMessage}
+                </p>
+              )}
+              <div>
+                <label
+                  className="mb-1 block text-sm font-medium text-slate-700"
+                  htmlFor={`edit-account-name-${selectedAccount.id}`}
+                >
+                  Name
+                </label>
+                <input
+                  id={`edit-account-name-${selectedAccount.id}`}
+                  className={`${inputClassName} w-full`}
+                  value={editDraft.name}
+                  onChange={(event) =>
+                    setEditDraft({ ...editDraft, name: event.target.value })
+                  }
+                  required
+                  autoFocus
+                  disabled={busy}
+                />
+              </div>
+              {renderPermissions(
+                editDraft,
+                setEditDraft,
+                `edit-account-${selectedAccount.id}`,
+              )}
+              <div className="flex justify-end gap-2">
+                <button
+                  className={`${buttonClassName} text-slate-600 hover:bg-slate-100`}
+                  type="button"
+                  onClick={() => {
+                    setEditingId(null);
+                    setEditDraft(emptyDraft);
+                    setErrorMessage("");
+                  }}
+                  disabled={busy}
+                >
+                  Cancel
+                </button>
+                <button
+                  className={`${buttonClassName} bg-indigo-600 px-4 text-white hover:bg-indigo-700`}
+                  type="submit"
+                  disabled={busy || !editDraft.name.trim()}
+                >
+                  {busy ? "Saving…" : "Save changes"}
+                </button>
+              </div>
+            </form>
+          ) : selectedAccount ? (
+            <div className="p-6">
+              <h2
+                className="mb-5 text-xl font-semibold"
+                id="accounts-modal-title"
+              >
+                Account details
+              </h2>
+              {errorMessage && (
+                <p
+                  className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800"
+                  role="alert"
+                >
+                  {errorMessage}
+                </p>
+              )}
+              <dl className="space-y-4">
+                <div>
+                  <dt className="text-sm font-medium text-slate-500">Name</dt>
+                  <dd className="mt-1 break-words">{selectedAccount.name}</dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-slate-500">
+                    Available for
+                  </dt>
+                  <dd className="mt-2 flex gap-2">
+                    {selectedAccount.can_from && (
+                      <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-sm font-medium text-indigo-700">
+                        From
+                      </span>
+                    )}
+                    {selectedAccount.can_to && (
+                      <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-sm font-medium text-emerald-700">
+                        To
+                      </span>
+                    )}
+                    {!selectedAccount.can_from && !selectedAccount.can_to && (
+                      <span className="text-sm text-slate-500">None</span>
+                    )}
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-6 flex items-center justify-between">
+                <button
+                  className={`${buttonClassName} text-red-700 hover:bg-red-50`}
+                  type="button"
+                  onClick={() => {
+                    setErrorMessage("");
+                    setIsDeleteConfirmOpen(true);
+                  }}
+                  disabled={busy}
+                >
+                  Delete
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    className={`${buttonClassName} text-slate-600 hover:bg-slate-100`}
+                    type="button"
+                    onClick={closeModal}
+                    disabled={busy}
+                  >
+                    Close
+                  </button>
+                  <button
+                    className={`${buttonClassName} bg-indigo-600 px-4 text-white hover:bg-indigo-700`}
+                    type="button"
+                    onClick={() => startEditing(selectedAccount)}
+                    disabled={busy}
+                  >
+                    Edit
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </dialog>
+      )}
     </main>
   );
 }
