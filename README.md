@@ -42,6 +42,12 @@ Team and account assignments are stored in `public.team_account`, with identity
 `id`, `created_at` default, and required `team_id` and `account_id` foreign keys
 to `public.teams(id)` and `public.accounts(id)`. Assignments can be managed
 from either the Teams or Accounts page.
+Team memberships are stored in `public.team_member`, which has identity `id`,
+`created_at` default, and required `team_id` and `user_id` foreign keys to
+`public.teams(id)` and `auth.users(id)`. The Teams page manages membership by
+Supabase Auth user UUID. Ensure the signed-in role has the necessary `SELECT`,
+`INSERT`, and `DELETE` grants and row-level security policies on this table;
+the page reads memberships and adds or removes them directly.
 
 To migrate an existing transaction table that still has text `from` and `to`
 columns, make sure every existing value matches exactly one account name
