@@ -62,8 +62,8 @@ function formatLocalDate(date: Date) {
   ].join("-");
 }
 
-function newTransactionDraft(): TransactionDraft {
-  return { ...emptyDraft, occured_at: getLocalDateString() };
+function newTransactionDraft(occuredAt = getLocalDateString()): TransactionDraft {
+  return { ...emptyDraft, occured_at: occuredAt };
 }
 
 const inputClassName =
@@ -796,7 +796,7 @@ export default function Transactions() {
             type="button"
             onClick={() => {
               setErrorMessage("");
-              setNewDraft(newTransactionDraft());
+              setNewDraft(newTransactionDraft(selectedDate));
               setIsCreateOpen(true);
             }}
             disabled={loading || busy}
