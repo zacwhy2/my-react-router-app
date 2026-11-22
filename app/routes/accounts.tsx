@@ -17,6 +17,11 @@ type Account = {
 
 type AccountDraft = Pick<Account, "name" | "can_from" | "can_to">;
 
+type AccountCounts = {
+  from: number;
+  to: number;
+};
+
 const emptyDraft: AccountDraft = {
   name: "",
   can_from: false,
@@ -37,6 +42,9 @@ export function meta({}: Route.MetaArgs) {
 
 export default function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [accountCounts, setAccountCounts] = useState<
+    Record<number, AccountCounts>
+  >({});
   const [newDraft, setNewDraft] = useState<AccountDraft>(emptyDraft);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
@@ -69,6 +77,35 @@ export default function Accounts() {
 
         if (error) throw error;
         setAccounts(data);
+
+        const countEntries = await Promise.all(
+          data.map(async (account) => {
+            const [fromResult, toResult] = await Promise.all([
+              getSupabaseClient()
+                .from("txns1")
+                .select("id", { count: "exact", head: true })
+                .eq("from_account_id", account.id),
+              getSupabaseClient()
+                .from("txns1")
+                .select("id", { count: "exact", head: true })
+                .eq("to_account_id", account.id),
+            ]);
+
+            if (fromResult.error) throw fromResult.error;
+            if (toResult.error) throw toResult.error;
+            if (fromResult.count === null || toResult.count === null) {
+              throw new Error(
+                `Unable to count transactions for ${account.name}.`,
+              );
+            }
+
+            return [
+              account.id,
+              { from: fromResult.count, to: toResult.count },
+            ] as const;
+          }),
+        );
+        setAccountCounts(Object.fromEntries(countEntries));
       } catch (error) {
         setErrorMessage(
           error instanceof Error ? error.message : "Unable to load accounts.",
@@ -103,6 +140,10 @@ export default function Accounts() {
       setAccounts((currentAccounts) =>
         [...currentAccounts, data].sort((a, b) => a.name.localeCompare(b.name)),
       );
+      setAccountCounts((currentCounts) => ({
+        ...currentCounts,
+        [data.id]: { from: 0, to: 0 },
+      }));
       setNewDraft(emptyDraft);
       setIsCreateOpen(false);
     } catch (error) {
@@ -178,6 +219,11 @@ export default function Accounts() {
       setAccounts((currentAccounts) =>
         currentAccounts.filter((item) => item.id !== account.id),
       );
+      setAccountCounts((currentCounts) => {
+        const remainingCounts = { ...currentCounts };
+        delete remainingCounts[account.id];
+        return remainingCounts;
+      });
       setIsDeleteConfirmOpen(false);
       setEditingId(null);
       setSelectedAccount(null);
@@ -311,7 +357,7 @@ export default function Accounts() {
               {accounts.map((account) => (
                 <li key={account.id}>
                   <button
-                    className="flex w-full items-center gap-3 px-4 py-4 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 sm:px-5"
+                    className="grid w-full grid-cols-[minmax(0,1fr)_5.5rem_5.5rem] items-center gap-2 px-4 py-3.5 text-left transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500 sm:px-5"
                     type="button"
                     onClick={() => {
                       setErrorMessage("");
@@ -320,19 +366,31 @@ export default function Accounts() {
                     disabled={busy}
                     aria-haspopup="dialog"
                   >
-                    <span className="min-w-0 flex-1 break-words font-medium">
+                    <span className="min-w-0 break-words font-medium">
                       {account.name}
                     </span>
-                    <span className="flex shrink-0 gap-1.5">
-                      {account.can_from && (
-                        <span className="rounded-full bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700">
+                    <span className="flex justify-center">
+                      {account.can_from ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-indigo-100 px-2 py-1 text-xs font-semibold text-indigo-800 ring-1 ring-inset ring-indigo-200">
                           From
+                          <span className="flex size-6 items-center justify-center rounded-full bg-indigo-700 text-xs font-bold tabular-nums text-white">
+                            {accountCounts[account.id]?.from ?? "—"}
+                          </span>
                         </span>
+                      ) : (
+                        <span aria-hidden="true" />
                       )}
-                      {account.can_to && (
-                        <span className="rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                    </span>
+                    <span className="flex justify-center">
+                      {account.can_to ? (
+                        <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-inset ring-emerald-200">
                           To
+                          <span className="flex size-6 items-center justify-center rounded-full bg-emerald-700 text-xs font-bold tabular-nums text-white">
+                            {accountCounts[account.id]?.to ?? "—"}
+                          </span>
                         </span>
+                      ) : (
+                        <span aria-hidden="true" />
                       )}
                     </span>
                   </button>
