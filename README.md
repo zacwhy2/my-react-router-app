@@ -38,6 +38,10 @@ and `can_to` columns.
 
 The `/teams` page manages rows in `public.teams`, which has an identity `id`,
 `created_at` default, and a required, unique text `name` column.
+Team and account assignments are stored in `public.team_account`, with identity
+`id`, `created_at` default, and required `team_id` and `account_id` foreign keys
+to `public.teams(id)` and `public.accounts(id)`. Assignments can be managed
+from either the Teams or Accounts page.
 
 To migrate an existing transaction table that still has text `from` and `to`
 columns, make sure every existing value matches exactly one account name

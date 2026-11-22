@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { Route } from "./+types/teams";
 import { getSupabaseClient } from "../utils/supabase";
+import {
+  getTeamAccountRelatedIds,
+  replaceTeamAccountLinks,
+  type TeamAccountLink,
+} from "../utils/team-account";
 
 type Team = {
   id: number;
@@ -10,9 +15,15 @@ type Team = {
 
 type TeamDraft = {
   name: string;
+  account_ids: number[];
 };
 
-const emptyDraft: TeamDraft = { name: "" };
+type Account = {
+  id: number;
+  name: string;
+};
+
+const emptyDraft: TeamDraft = { name: "", account_ids: [] };
 const inputClassName =
   "rounded-lg border border-slate-300 px-3 py-2 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200";
 const buttonClassName =
@@ -27,6 +38,10 @@ export function meta({}: Route.MetaArgs) {
 
 export default function Teams() {
   const [teams, setTeams] = useState<Team[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [teamAccountIds, setTeamAccountIds] = useState<
+    Record<number, number[]>
+  >({});
   const [newDraft, setNewDraft] = useState<TeamDraft>(emptyDraft);
   const [editDraft, setEditDraft] = useState<TeamDraft>(emptyDraft);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -52,13 +67,37 @@ export default function Teams() {
   useEffect(() => {
     async function fetchTeams() {
       try {
-        const { data, error } = await getSupabaseClient()
-          .from("teams")
-          .select("id, created_at, name")
-          .order("name", { ascending: true });
+        const [teamResult, accountResult, linkResult] = await Promise.all([
+          getSupabaseClient()
+            .from("teams")
+            .select("id, created_at, name")
+            .order("name", { ascending: true }),
+          getSupabaseClient()
+            .from("accounts")
+            .select("id, name")
+            .order("name", { ascending: true }),
+          getSupabaseClient()
+            .from("team_account")
+            .select("id, team_id, account_id"),
+        ]);
 
-        if (error) throw error;
-        setTeams(data);
+        if (teamResult.error) throw teamResult.error;
+        if (accountResult.error) throw accountResult.error;
+        if (linkResult.error) throw linkResult.error;
+        setTeams(teamResult.data);
+        setAccounts(accountResult.data);
+        setTeamAccountIds(
+          linkResult.data.reduce<Record<number, number[]>>(
+            (assignments, link: TeamAccountLink) => {
+              const accountIds = assignments[link.team_id] ?? [];
+              if (!accountIds.includes(link.account_id)) {
+                assignments[link.team_id] = [...accountIds, link.account_id];
+              }
+              return assignments;
+            },
+            {},
+          ),
+        );
       } catch (error) {
         setErrorMessage(
           error instanceof Error ? error.message : "Unable to load teams.",
@@ -93,11 +132,55 @@ export default function Teams() {
         throw new Error("A team with this name already exists.");
       }
       if (error) throw error;
+      try {
+        await replaceTeamAccountLinks(
+          "team_id",
+          data.id,
+          "account_id",
+          newDraft.account_ids,
+        );
+      } catch (error) {
+        let savedAccountIds: number[] = [];
+        let reloadError = "";
+        try {
+          savedAccountIds = await getTeamAccountRelatedIds(
+            "team_id",
+            data.id,
+            "account_id",
+          );
+        } catch (loadError) {
+          reloadError = ` Current assignments could not be reloaded: ${
+            loadError instanceof Error ? loadError.message : "Unknown error."
+          }`;
+        }
+        setTeams((currentTeams) =>
+          [...currentTeams, data].sort((a, b) => a.name.localeCompare(b.name)),
+        );
+        setTeamAccountIds((currentAssignments) => ({
+          ...currentAssignments,
+          [data.id]: savedAccountIds,
+        }));
+        setNewDraft(emptyDraft);
+        setIsCreateOpen(false);
+        setSelectedTeam(data);
+        setIsEditing(true);
+        setEditDraft({ name: data.name, account_ids: savedAccountIds });
+        setErrorMessage(
+          `Team created, but account assignments could not be saved: ${
+            error instanceof Error ? error.message : "Unknown error."
+          }${reloadError}`,
+        );
+        return;
+      }
       setTeams((currentTeams) =>
         [...currentTeams, data].sort((a, b) =>
           a.name.localeCompare(b.name),
         ),
       );
+      setTeamAccountIds((currentAssignments) => ({
+        ...currentAssignments,
+        [data.id]: newDraft.account_ids,
+      }));
       setNewDraft(emptyDraft);
       setIsCreateOpen(false);
     } catch (error) {
@@ -132,11 +215,35 @@ export default function Teams() {
         throw new Error("A team with this name already exists.");
       }
       if (error) throw error;
+      try {
+        await replaceTeamAccountLinks(
+          "team_id",
+          data.id,
+          "account_id",
+          editDraft.account_ids,
+        );
+      } catch (error) {
+        setTeams((currentTeams) =>
+          currentTeams
+            .map((team) => (team.id === data.id ? data : team))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+        setSelectedTeam(data);
+        throw new Error(
+          `Team details were updated, but account assignments could not be saved: ${
+            error instanceof Error ? error.message : "Unknown error."
+          }`,
+        );
+      }
       setTeams((currentTeams) =>
         currentTeams
           .map((team) => (team.id === data.id ? data : team))
           .sort((a, b) => a.name.localeCompare(b.name)),
       );
+      setTeamAccountIds((currentAssignments) => ({
+        ...currentAssignments,
+        [data.id]: editDraft.account_ids,
+      }));
       setSelectedTeam(data);
       setIsEditing(false);
       setEditDraft(emptyDraft);
@@ -155,20 +262,67 @@ export default function Teams() {
     setBusy(true);
     setErrorMessage("");
     try {
+      const previousAccountIds = await getTeamAccountRelatedIds(
+        "team_id",
+        team.id,
+        "account_id",
+      );
+      try {
+        await replaceTeamAccountLinks("team_id", team.id, "account_id", []);
+      } catch (unlinkError) {
+        try {
+          await replaceTeamAccountLinks(
+            "team_id",
+            team.id,
+            "account_id",
+            previousAccountIds,
+          );
+        } catch (restoreError) {
+          throw new Error(
+            `Unable to remove the team's account assignments, and they could not be restored: ${
+              restoreError instanceof Error
+                ? restoreError.message
+                : "Unknown error."
+            }`,
+          );
+        }
+        throw unlinkError;
+      }
       const { data, error } = await getSupabaseClient()
         .from("teams")
         .delete()
         .eq("id", team.id)
         .select("id");
 
-      if (error) throw error;
-      if (data.length === 0) {
+      if (error || data.length === 0) {
+        try {
+          await replaceTeamAccountLinks(
+            "team_id",
+            team.id,
+            "account_id",
+            previousAccountIds,
+          );
+        } catch (restoreError) {
+          throw new Error(
+            `Unable to delete the team, and its account assignments could not be restored: ${
+              restoreError instanceof Error
+                ? restoreError.message
+                : "Unknown error."
+            }`,
+          );
+        }
+        if (error) throw error;
         throw new Error("This team could not be found or deleted.");
       }
 
       setTeams((currentTeams) =>
         currentTeams.filter((item) => item.id !== team.id),
       );
+      setTeamAccountIds((currentAssignments) => {
+        const remainingAssignments = { ...currentAssignments };
+        delete remainingAssignments[team.id];
+        return remainingAssignments;
+      });
       setIsDeleteConfirmOpen(false);
       setSelectedTeam(null);
     } catch (error) {
@@ -181,7 +335,10 @@ export default function Teams() {
   }
 
   function startEditing(team: Team) {
-    setEditDraft({ name: team.name });
+    setEditDraft({
+      name: team.name,
+      account_ids: teamAccountIds[team.id] ?? [],
+    });
     setIsEditing(true);
     setIsDeleteConfirmOpen(false);
     setErrorMessage("");
@@ -215,12 +372,53 @@ export default function Teams() {
           id={id}
           className={`${inputClassName} w-full`}
           value={draft.name}
-          onChange={(event) => setDraft({ name: event.target.value })}
+          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
           required
           autoFocus
           disabled={busy}
         />
       </div>
+    );
+  }
+
+  function renderAccountAssignments(
+    selectedAccountIds: number[],
+    onChange: (accountIds: number[]) => void,
+    prefix: string,
+  ) {
+    return (
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-slate-700">Accounts</legend>
+        {accounts.length === 0 ? (
+          <p className="text-sm text-slate-500">No accounts available.</p>
+        ) : (
+          <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">
+            {accounts.map((account) => (
+              <label
+                key={account.id}
+                className="flex items-center gap-2 text-sm text-slate-700"
+                htmlFor={`${prefix}-account-${account.id}`}
+              >
+                <input
+                  id={`${prefix}-account-${account.id}`}
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  checked={selectedAccountIds.includes(account.id)}
+                  disabled={busy}
+                  onChange={(event) =>
+                    onChange(
+                      event.target.checked
+                        ? [...selectedAccountIds, account.id]
+                        : selectedAccountIds.filter((id) => id !== account.id),
+                    )
+                  }
+                />
+                {account.name}
+              </label>
+            ))}
+          </div>
+        )}
+      </fieldset>
     );
   }
 
@@ -291,7 +489,24 @@ export default function Teams() {
                     disabled={busy}
                     aria-haspopup="dialog"
                   >
-                    {team.name}
+                    <span className="block">{team.name}</span>
+                    {(teamAccountIds[team.id] ?? []).length > 0 && (
+                      <span className="mt-1.5 flex flex-wrap gap-1">
+                        {(teamAccountIds[team.id] ?? []).map((accountId) => {
+                          const account = accounts.find(
+                            (item) => item.id === accountId,
+                          );
+                          return account ? (
+                            <span
+                              key={account.id}
+                              className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
+                            >
+                              {account.name}
+                            </span>
+                          ) : null;
+                        })}
+                      </span>
+                    )}
                   </button>
                 </li>
               ))}
@@ -338,6 +553,11 @@ export default function Teams() {
                 </p>
               )}
               {renderNameInput(newDraft, setNewDraft, "new-team-name")}
+              {renderAccountAssignments(
+                newDraft.account_ids,
+                (account_ids) => setNewDraft({ ...newDraft, account_ids }),
+                "new-team",
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   className={`${buttonClassName} text-slate-600 hover:bg-slate-100`}
@@ -412,6 +632,11 @@ export default function Teams() {
                 setEditDraft,
                 `edit-team-name-${selectedTeam.id}`,
               )}
+              {renderAccountAssignments(
+                editDraft.account_ids,
+                (account_ids) => setEditDraft({ ...editDraft, account_ids }),
+                `edit-team-${selectedTeam.id}`,
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   className={`${buttonClassName} text-slate-600 hover:bg-slate-100`}
@@ -452,6 +677,32 @@ export default function Teams() {
                   <dt className="text-sm font-medium text-slate-500">Name</dt>
                   <dd className="mt-1 break-words">
                     {selectedTeam.name}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-slate-500">
+                    Accounts
+                  </dt>
+                  <dd className="mt-2 flex flex-wrap gap-2">
+                    {(teamAccountIds[selectedTeam.id] ?? []).length > 0 ? (
+                      (teamAccountIds[selectedTeam.id] ?? []).map(
+                        (accountId) => {
+                          const account = accounts.find(
+                            (item) => item.id === accountId,
+                          );
+                          return account ? (
+                            <span
+                              key={account.id}
+                              className="rounded-full bg-slate-100 px-2.5 py-1 text-sm font-medium text-slate-700"
+                            >
+                              {account.name}
+                            </span>
+                          ) : null;
+                        },
+                      )
+                    ) : (
+                      <span className="text-sm text-slate-500">None</span>
+                    )}
                   </dd>
                 </div>
               </dl>

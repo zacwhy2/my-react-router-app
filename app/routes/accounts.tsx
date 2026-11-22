@@ -6,6 +6,11 @@ import {
 } from "react";
 import type { Route } from "./+types/accounts";
 import { getSupabaseClient } from "../utils/supabase";
+import {
+  getTeamAccountRelatedIds,
+  replaceTeamAccountLinks,
+  type TeamAccountLink,
+} from "../utils/team-account";
 
 type Account = {
   id: number;
@@ -15,7 +20,14 @@ type Account = {
   can_to: boolean;
 };
 
-type AccountDraft = Pick<Account, "name" | "can_from" | "can_to">;
+type AccountDraft = Pick<Account, "name" | "can_from" | "can_to"> & {
+  team_ids: number[];
+};
+
+type Team = {
+  id: number;
+  name: string;
+};
 
 type AccountCounts = {
   from: number;
@@ -26,6 +38,7 @@ const emptyDraft: AccountDraft = {
   name: "",
   can_from: false,
   can_to: false,
+  team_ids: [],
 };
 
 const inputClassName =
@@ -44,6 +57,10 @@ export default function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [accountCounts, setAccountCounts] = useState<
     Record<number, AccountCounts>
+  >({});
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [accountTeamIds, setAccountTeamIds] = useState<
+    Record<number, number[]>
   >({});
   const [newDraft, setNewDraft] = useState<AccountDraft>(emptyDraft);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -78,32 +95,56 @@ export default function Accounts() {
         if (error) throw error;
         setAccounts(data);
 
-        const countEntries = await Promise.all(
-          data.map(async (account) => {
-            const [fromResult, toResult] = await Promise.all([
-              getSupabaseClient()
-                .from("txns1")
-                .select("id", { count: "exact", head: true })
-                .eq("from_account_id", account.id),
-              getSupabaseClient()
-                .from("txns1")
-                .select("id", { count: "exact", head: true })
-                .eq("to_account_id", account.id),
-            ]);
+        const [teamResult, linkResult, countEntries] = await Promise.all([
+          getSupabaseClient()
+            .from("teams")
+            .select("id, name")
+            .order("name", { ascending: true }),
+          getSupabaseClient()
+            .from("team_account")
+            .select("id, team_id, account_id"),
+          Promise.all(
+            data.map(async (account) => {
+              const [fromResult, toResult] = await Promise.all([
+                getSupabaseClient()
+                  .from("txns1")
+                  .select("id", { count: "exact", head: true })
+                  .eq("from_account_id", account.id),
+                getSupabaseClient()
+                  .from("txns1")
+                  .select("id", { count: "exact", head: true })
+                  .eq("to_account_id", account.id),
+              ]);
 
-            if (fromResult.error) throw fromResult.error;
-            if (toResult.error) throw toResult.error;
-            if (fromResult.count === null || toResult.count === null) {
-              throw new Error(
-                `Unable to count transactions for ${account.name}.`,
-              );
-            }
+              if (fromResult.error) throw fromResult.error;
+              if (toResult.error) throw toResult.error;
+              if (fromResult.count === null || toResult.count === null) {
+                throw new Error(
+                  `Unable to count transactions for ${account.name}.`,
+                );
+              }
 
-            return [
-              account.id,
-              { from: fromResult.count, to: toResult.count },
-            ] as const;
-          }),
+              return [
+                account.id,
+                { from: fromResult.count, to: toResult.count },
+              ] as const;
+            }),
+          ),
+        ]);
+        if (teamResult.error) throw teamResult.error;
+        if (linkResult.error) throw linkResult.error;
+        setTeams(teamResult.data);
+        setAccountTeamIds(
+          linkResult.data.reduce<Record<number, number[]>>(
+            (assignments, link: TeamAccountLink) => {
+              const teamIds = assignments[link.account_id] ?? [];
+              if (!teamIds.includes(link.team_id)) {
+                assignments[link.account_id] = [...teamIds, link.team_id];
+              }
+              return assignments;
+            },
+            {},
+          ),
         );
         setAccountCounts(Object.fromEntries(countEntries));
       } catch (error) {
@@ -144,6 +185,52 @@ export default function Accounts() {
         ...currentCounts,
         [data.id]: { from: 0, to: 0 },
       }));
+      try {
+        await replaceTeamAccountLinks(
+          "account_id",
+          data.id,
+          "team_id",
+          newDraft.team_ids,
+        );
+      } catch (error) {
+        let savedTeamIds: number[] = [];
+        let reloadError = "";
+        try {
+          savedTeamIds = await getTeamAccountRelatedIds(
+            "account_id",
+            data.id,
+            "team_id",
+          );
+        } catch (loadError) {
+          reloadError = ` Current assignments could not be reloaded: ${
+            loadError instanceof Error ? loadError.message : "Unknown error."
+          }`;
+        }
+        setAccountTeamIds((currentAssignments) => ({
+          ...currentAssignments,
+          [data.id]: savedTeamIds,
+        }));
+        setNewDraft(emptyDraft);
+        setIsCreateOpen(false);
+        setSelectedAccount(data);
+        setEditingId(data.id);
+        setEditDraft({
+          name: data.name,
+          can_from: data.can_from,
+          can_to: data.can_to,
+          team_ids: savedTeamIds,
+        });
+        setErrorMessage(
+          `Account created, but team assignments could not be saved: ${
+            error instanceof Error ? error.message : "Unknown error."
+          }${reloadError}`,
+        );
+        return;
+      }
+      setAccountTeamIds((currentAssignments) => ({
+        ...currentAssignments,
+        [data.id]: newDraft.team_ids,
+      }));
       setNewDraft(emptyDraft);
       setIsCreateOpen(false);
     } catch (error) {
@@ -175,11 +262,35 @@ export default function Accounts() {
         .single();
 
       if (error) throw error;
+      try {
+        await replaceTeamAccountLinks(
+          "account_id",
+          data.id,
+          "team_id",
+          editDraft.team_ids,
+        );
+      } catch (error) {
+        setAccounts((currentAccounts) =>
+          currentAccounts
+            .map((account) => (account.id === data.id ? data : account))
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+        setSelectedAccount(data);
+        throw new Error(
+          `Account details were updated, but team assignments could not be saved: ${
+            error instanceof Error ? error.message : "Unknown error."
+          }`,
+        );
+      }
       setAccounts((currentAccounts) =>
         currentAccounts
           .map((account) => (account.id === data.id ? data : account))
           .sort((a, b) => a.name.localeCompare(b.name)),
       );
+      setAccountTeamIds((currentAssignments) => ({
+        ...currentAssignments,
+        [data.id]: editDraft.team_ids,
+      }));
       setEditingId(null);
       setEditDraft(emptyDraft);
       setSelectedAccount(data);
@@ -198,21 +309,61 @@ export default function Accounts() {
     setBusy(true);
     setErrorMessage("");
     try {
+      const previousTeamIds = await getTeamAccountRelatedIds(
+        "account_id",
+        account.id,
+        "team_id",
+      );
+      try {
+        await replaceTeamAccountLinks("account_id", account.id, "team_id", []);
+      } catch (unlinkError) {
+        try {
+          await replaceTeamAccountLinks(
+            "account_id",
+            account.id,
+            "team_id",
+            previousTeamIds,
+          );
+        } catch (restoreError) {
+          throw new Error(
+            `Unable to remove the account's team assignments, and they could not be restored: ${
+              restoreError instanceof Error
+                ? restoreError.message
+                : "Unknown error."
+            }`,
+          );
+        }
+        throw unlinkError;
+      }
       const { data, error } = await getSupabaseClient()
         .from("accounts")
         .delete()
         .eq("id", account.id)
         .select("id");
 
-      if (error) {
-        if (error.code === "23503") {
+      if (error || data.length === 0) {
+        try {
+          await replaceTeamAccountLinks(
+            "account_id",
+            account.id,
+            "team_id",
+            previousTeamIds,
+          );
+        } catch (restoreError) {
+          throw new Error(
+            `Unable to delete the account, and its team assignments could not be restored: ${
+              restoreError instanceof Error
+                ? restoreError.message
+                : "Unknown error."
+            }`,
+          );
+        }
+        if (error?.code === "23503") {
           throw new Error(
             "This account is used by one or more transactions. Update those transactions before deleting it.",
           );
         }
-        throw error;
-      }
-      if (data.length === 0) {
+        if (error) throw error;
         throw new Error("This account could not be found or deleted.");
       }
 
@@ -223,6 +374,11 @@ export default function Accounts() {
         const remainingCounts = { ...currentCounts };
         delete remainingCounts[account.id];
         return remainingCounts;
+      });
+      setAccountTeamIds((currentAssignments) => {
+        const remainingAssignments = { ...currentAssignments };
+        delete remainingAssignments[account.id];
+        return remainingAssignments;
       });
       setIsDeleteConfirmOpen(false);
       setEditingId(null);
@@ -243,6 +399,7 @@ export default function Accounts() {
       name: account.name,
       can_from: account.can_from,
       can_to: account.can_to,
+      team_ids: accountTeamIds[account.id] ?? [],
     });
     setErrorMessage("");
   }
@@ -296,6 +453,47 @@ export default function Accounts() {
           To
         </label>
       </div>
+    );
+  }
+
+  function renderTeamAssignments(
+    selectedTeamIds: number[],
+    onChange: (teamIds: number[]) => void,
+    prefix: string,
+  ) {
+    return (
+      <fieldset className="space-y-2">
+        <legend className="text-sm font-medium text-slate-700">Teams</legend>
+        {teams.length === 0 ? (
+          <p className="text-sm text-slate-500">No teams available.</p>
+        ) : (
+          <div className="max-h-40 space-y-2 overflow-y-auto rounded-lg border border-slate-200 p-3">
+            {teams.map((team) => (
+              <label
+                key={team.id}
+                className="flex items-center gap-2 text-sm text-slate-700"
+                htmlFor={`${prefix}-team-${team.id}`}
+              >
+                <input
+                  id={`${prefix}-team-${team.id}`}
+                  type="checkbox"
+                  className="h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                  checked={selectedTeamIds.includes(team.id)}
+                  disabled={busy}
+                  onChange={(event) =>
+                    onChange(
+                      event.target.checked
+                        ? [...selectedTeamIds, team.id]
+                        : selectedTeamIds.filter((id) => id !== team.id),
+                    )
+                  }
+                />
+                {team.name}
+              </label>
+            ))}
+          </div>
+        )}
+      </fieldset>
     );
   }
 
@@ -366,8 +564,27 @@ export default function Accounts() {
                     disabled={busy}
                     aria-haspopup="dialog"
                   >
-                    <span className="min-w-0 break-words font-medium">
-                      {account.name}
+                    <span className="min-w-0">
+                      <span className="block break-words font-medium">
+                        {account.name}
+                      </span>
+                      {(accountTeamIds[account.id] ?? []).length > 0 && (
+                        <span className="mt-1.5 flex flex-wrap gap-1">
+                          {(accountTeamIds[account.id] ?? []).map((teamId) => {
+                            const team = teams.find(
+                              (item) => item.id === teamId,
+                            );
+                            return team ? (
+                              <span
+                                key={team.id}
+                                className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600"
+                              >
+                                {team.name}
+                              </span>
+                            ) : null;
+                          })}
+                        </span>
+                      )}
                     </span>
                     <span className="flex justify-center">
                       {account.can_from ? (
@@ -462,6 +679,11 @@ export default function Accounts() {
                 />
               </div>
               {renderPermissions(newDraft, setNewDraft, "new-account")}
+              {renderTeamAssignments(
+                newDraft.team_ids,
+                (team_ids) => setNewDraft({ ...newDraft, team_ids }),
+                "new-account",
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   className={`${buttonClassName} text-slate-600 hover:bg-slate-100`}
@@ -562,6 +784,11 @@ export default function Accounts() {
                 setEditDraft,
                 `edit-account-${selectedAccount.id}`,
               )}
+              {renderTeamAssignments(
+                editDraft.team_ids,
+                (team_ids) => setEditDraft({ ...editDraft, team_ids }),
+                `edit-account-${selectedAccount.id}`,
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   className={`${buttonClassName} text-slate-600 hover:bg-slate-100`}
@@ -621,6 +848,28 @@ export default function Accounts() {
                       </span>
                     )}
                     {!selectedAccount.can_from && !selectedAccount.can_to && (
+                      <span className="text-sm text-slate-500">None</span>
+                    )}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-sm font-medium text-slate-500">Teams</dt>
+                  <dd className="mt-2 flex flex-wrap gap-2">
+                    {(accountTeamIds[selectedAccount.id] ?? []).length > 0 ? (
+                      (accountTeamIds[selectedAccount.id] ?? []).map(
+                        (teamId) => {
+                          const team = teams.find((item) => item.id === teamId);
+                          return team ? (
+                            <span
+                              key={team.id}
+                              className="rounded-full bg-slate-100 px-2.5 py-1 text-sm font-medium text-slate-700"
+                            >
+                              {team.name}
+                            </span>
+                          ) : null;
+                        },
+                      )
+                    ) : (
                       <span className="text-sm text-slate-500">None</span>
                     )}
                   </dd>
