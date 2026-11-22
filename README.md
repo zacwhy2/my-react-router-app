@@ -36,6 +36,9 @@ columns, plus required `from_account_id` and `to_account_id` foreign keys to
 `public.accounts(id)`. The `public.accounts` table has `id`, `name`, `can_from`,
 and `can_to` columns.
 
+The `/teams` page manages rows in `public.teams`, which has an identity `id`,
+`created_at` default, and a required, unique text `name` column.
+
 To migrate an existing transaction table that still has text `from` and `to`
 columns, make sure every existing value matches exactly one account name
 (ignoring case and surrounding whitespace), then run
